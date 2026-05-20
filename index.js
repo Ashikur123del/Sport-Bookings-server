@@ -8,7 +8,11 @@ const app = express();
 
 app.use(express.json());
 
-app.use(cors());
+// 🚀 CORS কনফিগারেশন আরও নিখুঁত করা হলো যেন ফ্রন্টএন্ড থেকে রিকোয়েস্ট ব্লক না হয়
+app.use(cors({
+  origin: process.env.CLIENT_URL || "http://localhost:3000",
+  credentials: true
+}));
 
 const PORT = process.env.PORT || 8000;
 const uri = process.env.MONGO_DB_URL;
@@ -21,11 +25,12 @@ const client = new MongoClient(uri, {
   }
 });
 
-const FRONTEND_URL = process.env.CLIENT_URL;
+const FRONTEND_URL = process.env.CLIENT_URL || "http://localhost:3000";
 
+// 🚀 চাবি খোঁজার সঠিক ইউআরএল (এখন এটি ফ্রন্টএন্ড ৩০০০ পোর্টে হিট করবে)
 const JWKS = createRemoteJWKSet(new URL(`${FRONTEND_URL}/api/auth/jwks`));
+
 const verifySportToken = async (req, res, next) => {
-  
     const authHeader = req?.headers?.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return res.status(401).send({ message: 'Unauthorized access! Token missing.' });
@@ -39,29 +44,43 @@ const verifySportToken = async (req, res, next) => {
         req.user = payload; 
         next();
     } catch (error) {
-        console.error("Verification Error:", error.message);
+        console.error("❌ Verification Error:", error.message);
         return res.status(403).send({ message: 'Forbidden access! Invalid token.' });
     }
 };
 
 async function run() {
   try {
-    // await client.connect();
-    
+   
     const db = client.db('Sport-Booking');
     const sportBookingCollection = db.collection('Sport-user');
     const bookingsCollection = db.collection('bookings');
 
+    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+
+   
     app.get('/sport-user', async (req, res) => {
-        const result = await sportBookingCollection.find().toArray();
-        res.send(result);
+        try {
+            const result = await sportBookingCollection.find().toArray();
+            res.send(result);
+        } catch (err) {
+            res.status(500).send({ message: err.message });
+        }
     });
 
+
     app.get('/sport-user/:sportId', verifySportToken, async (req, res) => {
-        const { sportId } = req.params;
-        const query = { _id: new ObjectId(sportId) };
-        const result = await sportBookingCollection.findOne(query);
-        res.send(result);
+        try {
+            const { sportId } = req.params;
+            const query = { _id: new ObjectId(sportId) };
+            const result = await sportBookingCollection.findOne(query);
+            if (!result) {
+                return res.status(404).send({ message: "Facility not found!" });
+            }
+            res.send(result);
+        } catch (err) {
+            res.status(500).send({ message: err.message });
+        }
     });
 
     app.post('/sport-user', async (req, res) => {
@@ -91,14 +110,13 @@ async function run() {
         res.send(result);
     });
 
+
     app.delete('/sport-user/:id', async (req, res) => {
         const id = req.params.id;
         const query = { _id: new ObjectId(id) };
         const result = await sportBookingCollection.deleteOne(query);
         res.send(result);
     });
-
-
 
     app.post('/booking', async (req, res) => {
         const bookingData = req.body;
@@ -109,15 +127,18 @@ async function run() {
         res.send(result);
     });
 
+
     app.get('/my-bookings', verifySportToken, async (req, res) => {
-        const email = req.user?.email; 
-        const query = { userEmail: email }; 
-        const result = await bookingsCollection.find(query).toArray();
-        res.send(result);
+        try {
+            const email = req.user?.email; 
+            const query = { userEmail: email }; 
+            const result = await bookingsCollection.find(query).toArray();
+            res.send(result);
+        } catch (err) {
+            res.status(500).send({ message: err.message });
+        }
     });
 
-    // await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } catch (error) {
     console.error("MongoDB Connection Error:", error);
   }
@@ -131,4 +152,3 @@ app.get("/", (req, res) => {
 app.listen(PORT, () => {
   console.log(`My Server Is Running On Port ${PORT}`);
 });
-
