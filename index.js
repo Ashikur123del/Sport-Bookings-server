@@ -5,7 +5,6 @@ const { jwtVerify, createRemoteJWKSet } = require('jose-cjs');
 require('dotenv').config();
 
 const app = express();
-
 app.use(express.json());
 
 app.use(cors({
@@ -26,9 +25,7 @@ const client = new MongoClient(uri, {
 
 const FRONTEND_URL = process.env.CLIENT_URL || "http://localhost:3000";
 
-
 const JWKS = createRemoteJWKSet(new URL(`${FRONTEND_URL}/api/auth/jwks`));
-
 const verifySportToken = async (req, res, next) => {
     const authHeader = req?.headers?.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
