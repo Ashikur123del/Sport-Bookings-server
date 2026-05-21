@@ -8,7 +8,6 @@ const app = express();
 
 app.use(express.json());
 
-// 🚀 CORS কনফিগারেশন আরও নিখুঁত করা হলো যেন ফ্রন্টএন্ড থেকে রিকোয়েস্ট ব্লক না হয়
 app.use(cors({
   origin: process.env.CLIENT_URL || "http://localhost:3000",
   credentials: true
@@ -27,7 +26,7 @@ const client = new MongoClient(uri, {
 
 const FRONTEND_URL = process.env.CLIENT_URL || "http://localhost:3000";
 
-// 🚀 চাবি খোঁজার সঠিক ইউআরএল (এখন এটি ফ্রন্টএন্ড ৩০০০ পোর্টে হিট করবে)
+
 const JWKS = createRemoteJWKSet(new URL(`${FRONTEND_URL}/api/auth/jwks`));
 
 const verifySportToken = async (req, res, next) => {
@@ -44,7 +43,7 @@ const verifySportToken = async (req, res, next) => {
         req.user = payload; 
         next();
     } catch (error) {
-        console.error("❌ Verification Error:", error.message);
+        console.error(" Verification Error:", error.message);
         return res.status(403).send({ message: 'Forbidden access! Invalid token.' });
     }
 };
@@ -59,14 +58,36 @@ async function run() {
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
    
-    app.get('/sport-user', async (req, res) => {
-        try {
-            const result = await sportBookingCollection.find().toArray();
-            res.send(result);
-        } catch (err) {
-            res.status(500).send({ message: err.message });
+  app.get('/sport-user', async (req, res) => {
+    try {
+        const { search, facility_type, sort } = req.query;
+        let query = {};
+        if (search) {
+            query.name = { $regex: search, $options: 'i' }; 
+            
         }
-    });
+
+        if (facility_type && facility_type !== 'All Sports') {
+            query.facility_type = facility_type;
+        }
+
+        let sortOption = {};
+        if (sort === 'asc') {
+            sortOption.price_per_hour = 1;
+        } else if (sort === 'desc') {
+            sortOption.price_per_hour = -1;
+        }
+
+        const result = await sportBookingCollection
+            .find(query)
+            .sort(sortOption)
+            .toArray();
+
+        res.send(result);
+    } catch (err) {
+        res.status(500).send({ message: err.message });
+    }
+});
 
 
     app.get('/sport-user/:sportId', verifySportToken, async (req, res) => {
