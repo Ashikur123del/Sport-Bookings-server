@@ -1,15 +1,27 @@
 const express = require('express');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const cors = require('cors');
-const { jwtVerify, createRemoteJWKSet } = require('jose-cjs'); 
 require('dotenv').config();
 
 const app = express();
 app.use(express.json());
 
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://sport-bookings-system.vercel.app'
+];
+
 app.use(cors({
-  origin: process.env.CLIENT_URL || "http://localhost:3000",
-  credentials: true
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+  allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
 const PORT = process.env.PORT || 8000;
@@ -23,142 +35,99 @@ const client = new MongoClient(uri, {
   }
 });
 
-const FRONTEND_URL = process.env.CLIENT_URL || "http://localhost:3000";
 
-const JWKS = createRemoteJWKSet(new URL(`${FRONTEND_URL}/api/auth/jwks`));
-const verifySportToken = async (req, res, next) => {
-    const authHeader = req?.headers?.authorization;
+const verifySportToken = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).send({ message: 'Unauthorized access! Token missing.' });
+        return res.status(401).send({ message: 'Unauthorized! Token missing.' });
     }
     
-    const token = authHeader.split(' ')[1];
-    try {
-        const { payload } = await jwtVerify(token, JWKS, {
-            algorithms: ['EdDSA'],
-        });
-        req.user = payload; 
-        next();
-    } catch (error) {
-        console.error(" Verification Error:", error.message);
-        return res.status(403).send({ message: 'Forbidden access! Invalid token.' });
-    }
+    next();
 };
 
 async function run() {
   try {
-   
     const db = client.db('Sport-Booking');
     const sportBookingCollection = db.collection('Sport-user');
     const bookingsCollection = db.collection('bookings');
 
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    console.log("Connected to MongoDB Successfully!");
 
-   
-  app.get('/sport-user', async (req, res) => {
-    try {
+    app.get('/sport-user', async (req, res) => {
         const { search, facility_type, sort } = req.query;
         let query = {};
-        if (search) {
-            query.name = { $regex: search, $options: 'i' }; 
-            
-        }
-
-        if (facility_type && facility_type !== 'All Sports') {
-            query.facility_type = facility_type;
-        }
+        
+        if (search) query.name = { $regex: search, $options: 'i' }; 
+        if (facility_type && facility_type !== 'All Sports') query.facility_type = facility_type;
 
         let sortOption = {};
-        if (sort === 'asc') {
-            sortOption.price_per_hour = 1;
-        } else if (sort === 'desc') {
-            sortOption.price_per_hour = -1;
-        }
+        if (sort === 'asc') sortOption.price_per_hour = 1;
+        if (sort === 'desc') sortOption.price_per_hour = -1;
 
-        const result = await sportBookingCollection
-            .find(query)
-            .sort(sortOption)
-            .toArray();
-
+        const result = await sportBookingCollection.find(query).sort(sortOption).toArray();
         res.send(result);
-    } catch (err) {
-        res.status(500).send({ message: err.message });
-    }
-});
+    });
 
-
-    app.get('/sport-user/:sportId', verifySportToken, async (req, res) => {
+    app.get('/sport-user/:sportId', async (req, res) => {
         try {
-            const { sportId } = req.params;
-            const query = { _id: new ObjectId(sportId) };
+            const id = req.params.sportId;
+            const query = { _id: new ObjectId(id) };
             const result = await sportBookingCollection.findOne(query);
             if (!result) {
-                return res.status(404).send({ message: "Facility not found!" });
+                return res.status(404).send({ message: "Facility not found" });
             }
             res.send(result);
-        } catch (err) {
-            res.status(500).send({ message: err.message });
+        } catch (error) {
+            res.status(400).send({ message: "Invalid ID format" });
         }
     });
 
     app.post('/sport-user', async (req, res) => {
-        const newFacility = req.body; 
-        const result = await sportBookingCollection.insertOne(newFacility);
+        const result = await sportBookingCollection.insertOne(req.body);
         res.send(result); 
     });
 
     app.patch('/sport-user/:id', async (req, res) => {
-        const id = req.params.id;
-        const updatedData = req.body;
-        
-        const filter = { _id: new ObjectId(id) };
-        const updateDoc = {
-            $set: {
-                name: updatedData.name,
-                facility_type: updatedData.facility_type,
-                image: updatedData.image,
-                location: updatedData.location,
-                price_per_hour: updatedData.price_per_hour,
-                capacity: updatedData.capacity,
-                description: updatedData.description,
-            }
-        };
-
+        const filter = { _id: new ObjectId(req.params.id) };
+        const updateDoc = { $set: req.body };
         const result = await sportBookingCollection.updateOne(filter, updateDoc);
         res.send(result);
     });
 
 
     app.delete('/sport-user/:id', async (req, res) => {
-        const id = req.params.id;
-        const query = { _id: new ObjectId(id) };
+        const query = { _id: new ObjectId(req.params.id) };
         const result = await sportBookingCollection.deleteOne(query);
         res.send(result);
     });
 
-    app.post('/booking', async (req, res) => {
+    app.post('/booking', verifySportToken, async (req, res) => {
         const bookingData = req.body;
+        
         if (bookingData.facilityId) {
             bookingData.facilityId = new ObjectId(bookingData.facilityId);
         }
+        
         const result = await bookingsCollection.insertOne(bookingData);
         res.send(result);
     });
 
-
-    app.get('/my-bookings', verifySportToken, async (req, res) => {
-        try {
-            const email = req.user?.email; 
-            const query = { userEmail: email }; 
-            const result = await bookingsCollection.find(query).toArray();
-            res.send(result);
-        } catch (err) {
-            res.status(500).send({ message: err.message });
-        }
-    });
+  
+app.get('/my-bookings', async (req, res) => {
+    try {
+        const email = req.query.email;
+        if (!email) return res.status(400).json({ message: "Email required" });
+        
+        const result = await bookingsCollection.find({ userEmail: email }).toArray();
+        res.status(200).json(result);
+    } catch (error) {
+        res.status(500).json({ message: "Internal Server Error" });
+    }
+});
 
   } catch (error) {
-    console.error("MongoDB Connection Error:", error);
+    console.error("MongoDB Error:", error);
   }
 }
 run().catch(console.dir);
@@ -168,5 +137,5 @@ app.get("/", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`My Server Is Running On Port ${PORT}`);
+  console.log(`Server Is Running On Port ${PORT}`);
 });
